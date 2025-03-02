@@ -219,329 +219,104 @@ def generate_monthly_summary(data, shifts, interval, saturday_op=False, sunday_o
 
 
 
+# Initialize a list to store data for the consolidated table
+consolidated_data = []
+month_order = {
+                            "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+                            "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
+                        }
+
 if st.button("Process Files"):
-    all_data = []
-    for files in uploaded_files:
+    all_data_by_account = []
+    consolidated_data = []  # Initialize for the consolidated table
+
+    # Process files for each account
+    for account_index, files in enumerate(uploaded_files):
+        st.write(f"### Processing Account {account_index + 1}")
+
+        account_data = []
         for file in files:
             for demand_column in demand_columns:
                 df = preprocess_file(file, demand_column)
                 if df is not None:
-                    all_data.append(df)
+                    account_data.append(df)
 
-    if all_data:
-        combined_data = pd.concat(all_data, ignore_index=True)
-        combined_data["Operating"] = combined_data.apply(
-             lambda row: calculate_operating(row, shifts, saturday_op, sunday_op), axis=1)
-
-        combined_data["OnPeak"] = combined_data.apply(calculate_on_peak, axis=1)
-
-        # Generate the summary table
-        summary = generate_monthly_summary(combined_data, shifts, interval, saturday_op, sunday_op)
-
-        # Add a numerical month column for sorting
-        month_order = {
-            "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-            "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
-        }
-        
-        combined_data["MonthOrder"] = combined_data["Month"].map(month_order)
-
-        # Sort combined data by Year and MonthOrder
-        combined_data = combined_data.sort_values(by=["Year", "MonthOrder", "DateTime"])
-
-        # Add "Month / Year" column to combined_data
-        combined_data["Month / Year"] = combined_data["Month"] + " / " + combined_data["Year"].astype(str)
-
-        
-        
-        summary["MonthOrder"] = summary["Month"].map(month_order)
-
-        # Separate the "Total" row from the rest of the data
-        total_row = summary[summary["Month"] == "Total"]
-        summary = summary[summary["Month"] != "Total"]
-
-        # Add the Year column from combined_data
-        year_mapping = combined_data.groupby("Month")["Year"].first().reset_index()
-        year_mapping["MonthOrder"] = year_mapping["Month"].map(month_order)
-        summary = summary.merge(year_mapping, on=["MonthOrder", "Month"], how="left")
-
-        # Sort by Year and MonthOrder
-        summary = summary.sort_values(by=["Year", "MonthOrder"])
-
-        # Create a "Month / Year" column
-        summary["Month / Year"] = summary["Month"] + " / " + summary["Year"].astype(str)
-
-        # Re-add the "Total" row at the end
-        total_row["Month / Year"] = "Total / Total"  # Add placeholder value for "Total" row
-        summary = pd.concat([summary, total_row], ignore_index=True)
-
-        # Rearrange columns to include "Month / Year" first
-        summary = summary[["Month / Year"] + [col for col in summary.columns if col not in ["Month / Year", "MonthOrder", "Year"]]]
-
-        # Display the Monthly Summary table
-        st.write("Monthly Summary")
-        summary.index = summary.index + 1
-        st.dataframe(summary)
-
-        # Calculate maximum and average demand for each month
-        demand_stats = combined_data.groupby(["Month", "Year"]).agg(
-            MaxDemand=("Demand", "max"),
-            AvgDemand=("Demand", "mean")
-        ).reset_index()
-
-        # Add a numerical representation for months to sort them correctly
-        month_order = {
-            "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-            "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
-        }
-        demand_stats["MonthOrder"] = demand_stats["Month"].map(month_order)
-
-        # Sort the DataFrame by Year and then by MonthOrder
-        demand_stats = demand_stats.sort_values(by=["Year", "MonthOrder"]).reset_index(drop=True)
-
-        # Create a "Month / Year" column for the demand stats table
-        demand_stats["Month / Year"] = demand_stats["Month"] + " / " + demand_stats["Year"].astype(str)
-
-        # Reorder columns
-        demand_stats = demand_stats[["Month / Year", "MaxDemand", "AvgDemand"]]
-
-        # Display the Maximum and Average Demand Table
-        st.write("### Maximum and Average Demand Table")
-        st.dataframe(demand_stats)
-
-        # Plot Maximum and Average Demand
-        fig, ax = plt.subplots(figsize=(12, 6))
-        bar_width = 0.4
-        x = np.arange(len(demand_stats["Month / Year"]))
-
-        # Bars for Max Demand
-        ax.bar(x - bar_width / 2, demand_stats["MaxDemand"], bar_width, label="Max Demand (kW)", color="orange")
-
-        # Bars for Average Demand
-        ax.bar(x + bar_width / 2, demand_stats["AvgDemand"], bar_width, label="Avg Demand (kW)", color="blue")
-
-        # Customizing the chart
-        ax.set_title("Maximum and Average Demand by Month", fontsize=16)
-        ax.set_xlabel("Month / Year", fontsize=12)
-        ax.set_ylabel("Demand (kW)", fontsize=12)
-        ax.set_xticks(x)
-        ax.set_xticklabels(demand_stats["Month / Year"], rotation=45)
-        ax.legend()
-
-        # Display the plot in Streamlit
-        st.pyplot(fig)
-
-        # Exclude the "Total" row for plotting
-        plot_data = summary[summary["Month / Year"] != "Total / Total"]
-
-        # Plot Operating Shift and Not Operating
-        fig, ax = plt.subplots(figsize=(12, 6))
-        bar_width = 0.4
-        x = np.arange(len(plot_data["Month / Year"]))
-
-        # Bars for Operating Shift
-        ax.bar(x - bar_width / 2, plot_data["OperatingShift"], bar_width, label="Operating Shift", color="green")
-
-        # Bars for Not Operating
-        ax.bar(x + bar_width / 2, plot_data["NotOperating"], bar_width, label="Not Operating", color="red")
-
-        # Customizing the chart
-        ax.set_title("Operating Shift vs Not Operating by Month", fontsize=16)
-        ax.set_xlabel("Month / Year", fontsize=12)
-        ax.set_ylabel("Demand (kWh)", fontsize=12)
-        ax.set_xticks(x)
-        ax.set_xticklabels(plot_data["Month / Year"], rotation=45)
-        ax.legend()
-
-        # Show the plot in Streamlit
-        st.pyplot(fig)
-
-
-        # Plot OnPeakOperating and OffPeakOperating
-        fig1, ax1 = plt.subplots(figsize=(12, 6))
-        bar_width = 0.35  # Adjust bar width for two categories
-        x = np.arange(len(plot_data["Month / Year"]))
-
-        # Bars for OnPeakOperating
-        ax1.bar(x - bar_width / 2, plot_data["OnPeakOperating"], bar_width, label="OnPeak Operating", color="green")
-
-        # Bars for OffPeakOperating
-        ax1.bar(x + bar_width / 2, plot_data["OffPeakOperating"], bar_width, label="OffPeak Operating", color="blue")
-
-        # Customizing the chart
-        ax1.set_title("OnPeak and OffPeak Operating Demand", fontsize=16)
-        ax1.set_xlabel("Month / Year", fontsize=12)
-        ax1.set_ylabel("Demand (kW)", fontsize=12)
-        ax1.set_xticks(x)
-        ax1.set_xticklabels(plot_data["Month / Year"], rotation=45)
-        ax1.legend()
-
-        # Show the plot in Streamlit
-        st.pyplot(fig1)
-
-
-        # Plot OnPeakNotOperating and OffPeakNotOperating
-        fig2, ax2 = plt.subplots(figsize=(12, 6))
-        bar_width = 0.35  # Adjust bar width for two categories
-        x = np.arange(len(plot_data["Month / Year"]))
-
-        # Bars for OnPeakNotOperating
-        ax2.bar(x - bar_width / 2, plot_data["OnPeakNotOperating"], bar_width, label="OnPeak Not Operating", color="orange")
-
-        # Bars for OffPeakNotOperating
-        ax2.bar(x + bar_width / 2, plot_data["OffPeakNotOperating"], bar_width, label="OffPeak Not Operating", color="red")
-
-        # Customizing the chart
-        ax2.set_title("OnPeak and OffPeak Not Operating Demand", fontsize=16)
-        ax2.set_xlabel("Month / Year", fontsize=12)
-        ax2.set_ylabel("Demand (kW)", fontsize=12)
-        ax2.set_xticks(x)
-        ax2.set_xticklabels(plot_data["Month / Year"], rotation=45)
-        ax2.legend()
-
-        # Show the plot in Streamlit
-        st.pyplot(fig2)
-
-
-
-
-# Exclude the "Total" row for plotting
-        plot_data = summary[summary["Month / Year"] != "Total / Total"]
-
-        # Plot Total Demand for each Month
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        ax.bar(plot_data["Month / Year"], plot_data["TotalDemand"], color="blue", label="Total Demand (kW)")
-
-        # Customize the chart
-        ax.set_title("Total Demand (kW) by Month", fontsize=16)
-        ax.set_xlabel("Month / Year", fontsize=12)
-        ax.set_ylabel("Total Demand (kW)", fontsize=12)
-        plt.xticks(rotation=45)
-        ax.legend()
-
-        # Show the plot in Streamlit
-        st.pyplot(fig)
-        
-         # Separate Demand Plots for Each Month
-        st.write("### Monthly Demand (kW) Details")
-        unique_months = combined_data["Month / Year"].unique()
-
-        for month_year in unique_months:
-            monthly_data = combined_data[combined_data["Month / Year"] == month_year]
-            fig, ax = plt.subplots(figsize=(12,6))
-
-            ax.plot(
-                monthly_data["DateTime"],
-                monthly_data["Demand"],
-                #marker="o",
-                linestyle="-",
-                color="green",
-                label=f"Demand (kW) - {month_year}"
+        if account_data:
+            combined_account_data = pd.concat(account_data, ignore_index=True)
+            combined_account_data["Operating"] = combined_account_data.apply(
+                lambda row: calculate_operating(row, shifts, saturday_op, sunday_op), axis=1
             )
+            combined_account_data["OnPeak"] = combined_account_data.apply(calculate_on_peak, axis=1)
 
-            ax.set_title(f"Demand (kW) for {month_year}", fontsize=16)
-            ax.set_xlabel("Time", fontsize=12)
-            ax.set_ylabel("Demand (kW)", fontsize=12)
-            ax.grid(True)
-            plt.xticks(rotation=45)
-            ax.legend()
-            st.pyplot(fig)
-            
-         # --- Weekly and Tuesday Plots ---
-        st.write("### Weekly and Daily Demand Analysis")
-        unique_months = combined_data["Month / Year"].unique()
+            # Generate the summary table for the current account
+            summary_account = generate_monthly_summary(combined_account_data, shifts, interval, saturday_op, sunday_op)
 
-        for month_year in unique_months:
-            # Filter data for the current month
-            monthly_data = combined_data[combined_data["Month / Year"] == month_year]
+            # Add "Year" column to summary_account using year mapping from combined_account_data
+            year_mapping = combined_account_data.groupby("Month")["Year"].first().reset_index()
+            summary_account = pd.merge(summary_account, year_mapping, on="Month", how="left")
 
-            # Choose a random week (Monday to Sunday)
-            random_week_start = monthly_data.loc[monthly_data["DayName"] == "Monday"].iloc[0]["DateTime"]
-            random_week_end = random_week_start + pd.Timedelta(days=6)
+            # Add account number to identify the source account
+            summary_account["Account"] = f"Account {account_index + 1}"
 
-            weekly_data = monthly_data[(monthly_data["DateTime"] >= random_week_start) &
-                                       (monthly_data["DateTime"] <= random_week_end)]
+            # Add a "Month / Year" column
+            summary_account["MonthOrder"] = summary_account["Month"].map(month_order)
+            summary_account = summary_account.sort_values(by=["Year", "MonthOrder"])
+            summary_account["Month / Year"] = summary_account["Month"] + " / " + summary_account["Year"].fillna("").astype(str)
 
-            # Filter for Tuesday of the same week
-            tuesday_data = weekly_data[weekly_data["DayName"] == "Tuesday"]
+            # Separate Total row
+            total_row = summary_account[summary_account["Month"] == "Total"]
+            summary_account = summary_account[summary_account["Month"] != "Total"]
+            total_row["Month / Year"] = "Total / Total"  # Assign placeholder value
+            total_row["Year"] = None  # Set Year to None for the Total row
+            summary_account = pd.concat([summary_account, total_row], ignore_index=True)
 
-            # --- Weekly and Tuesday Plots ---
-        st.write("### Weekly and Daily Demand Analysis")
-        unique_months = combined_data["Month / Year"].unique()
+            # Rearrange columns
+            summary_account = summary_account[["Account", "Month / Year", "Year", "MonthOrder"] + 
+                                               [col for col in summary_account.columns if col not in ["Account", "Month / Year", "Year", "MonthOrder", "Month"]]]
 
-        for month_year in unique_months:
-            # Filter data for the current month
-            monthly_data = combined_data[combined_data["Month / Year"] == month_year]
+            # Save account-specific data
+            all_data_by_account.append((account_index + 1, summary_account))
+            consolidated_data.append(summary_account)
 
-            # Choose a random week (Monday to Sunday)
-            random_week_start = monthly_data.loc[monthly_data["DayName"] == "Monday"].iloc[0]["DateTime"]
-            random_week_end = random_week_start + pd.Timedelta(days=6)
+            # Display the summary table for the current account
+            st.write(f"### Monthly Summary for Account {account_index + 1}")
+            summary_account.index = summary_account.index + 1
+            st.dataframe(summary_account)
 
-            weekly_data = monthly_data[(monthly_data["DateTime"] >= random_week_start) &
-                                       (monthly_data["DateTime"] <= random_week_end)]
+    if consolidated_data:
+        # Concatenate data for all accounts
+        consolidated_table = pd.concat(consolidated_data, ignore_index=True)
 
-            # Filter for Tuesday of the same week
-            tuesday_data = weekly_data[weekly_data["DayName"] == "Tuesday"]
+        # Extract Month and Year from "Month / Year" if not already present
+        if "Month" not in consolidated_table.columns:
+            consolidated_table["Month"] = consolidated_table["Month / Year"].str.split(" / ").str[0]
+        if "Year" not in consolidated_table.columns:
+            consolidated_table["Year"] = consolidated_table["Month / Year"].str.split(" / ").str[1]
 
-            # Plot Weekly Demand
-            if not weekly_data.empty:
-                avg_demand = weekly_data["Demand"].mean()
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.plot(
-                    weekly_data["DateTime"],
-                    weekly_data["Demand"],
-                    label="Weekly Demand",
-                    color="blue",
-                    #marker="o",
-                    linestyle="-"
-                )
-                ax.axhline(y=avg_demand, color="red", linestyle="--", label=f"Average Demand ({avg_demand:.2f} kW)")
-                ax.set_title(f"Demand (kW) for Week of {random_week_start.date()} ({month_year})", fontsize=16)
-                ax.set_xlabel("Date and Time", fontsize=12)
-                ax.set_ylabel("Demand (kW)", fontsize=12)
-                ax.grid(True)
-                plt.xticks(rotation=45)
-                ax.legend()
-                st.pyplot(fig)
+        # Ensure 'Year' is numeric
+        consolidated_table["Year"] = pd.to_numeric(consolidated_table["Year"], errors="coerce")  # Handle NaN for 'Total' rows
 
-            # Plot Tuesday Demand
-            if not tuesday_data.empty:
-                fig, ax = plt.subplots(figsize=(12, 6))
-                ax.plot(
-                    tuesday_data["DateTime"],
-                    tuesday_data["Demand"],
-                    label="Tuesday Demand",
-                    color="green",
-                    #marker="o",
-                    linestyle="-"
-                )
+        # Filter out 'Total' rows before aggregation
+        filtered_consolidated_table = consolidated_table[consolidated_table["Month / Year"] != "Total / Total"]
 
-                # Highlight Operating and Non-Operating Times
-                operating_data = tuesday_data[tuesday_data["Operating"]]
-                non_operating_data = tuesday_data[~tuesday_data["Operating"]]
+        # Group by Month and Year and sum the numeric columns
+        aggregated_table = filtered_consolidated_table.groupby(["Month", "Year"]).sum(numeric_only=True).reset_index()
 
-                if not operating_data.empty:
-                    ax.scatter(
-                        operating_data["DateTime"],
-                        operating_data["Demand"],
-                        color="blue",
-                        label="Operating Time",
-                        #marker="o"
-                    )
-                if not non_operating_data.empty:
-                    ax.scatter(
-                        non_operating_data["DateTime"],
-                        non_operating_data["Demand"],
-                        color="red",
-                        label="Not Operating Time",
-                        #marker="x"
-                    )
+        # Add a "Month / Year" column
+        aggregated_table["MonthOrder"] = aggregated_table["Month"].map(month_order)
+        aggregated_table = aggregated_table.sort_values(by=["Year", "MonthOrder"]).reset_index(drop=True)
+        aggregated_table["Month / Year"] = aggregated_table["Month"] + " / " + aggregated_table["Year"].astype(int).astype(str)
 
-                ax.set_title(f"Tuesday Demand (kW) for Week of {random_week_start.date()} ({month_year})", fontsize=16)
-                ax.set_xlabel("Date and Time", fontsize=12)
-                ax.set_ylabel("Demand (kW)", fontsize=12)
-                ax.grid(True)
-                plt.xticks(rotation=45)
-                ax.legend()
-                st.pyplot(fig)
+        # Rearrange columns
+        aggregated_table = aggregated_table[["Month / Year", "Year"] + 
+                                            [col for col in aggregated_table.columns if col not in ["Month / Year", "Year", "MonthOrder", "Month"]]]
+
+        # Add a Total row to the aggregated table
+        total_row = aggregated_table.sum(numeric_only=True).to_frame().T
+        total_row["Month / Year"] = "Total / Total"
+        total_row["Year"] = None  # Set Year to None for the Total row
+        aggregated_table = pd.concat([aggregated_table, total_row], ignore_index=True)
+
+        # Display the aggregated table
+        st.write("### Consolidated Monthly Summary (Summation of All Accounts)")
+        st.dataframe(aggregated_table)
